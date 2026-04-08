@@ -1,0 +1,38 @@
+{
+  "name": "neuroshield",
+  "version": "1.0.0",
+  "description": "Real-time photosensitivity protection for the web",
+  "private": true,
+  "author": "Omar Khaled",
+  "scripts": {
+    "test": "node --test test/detector.test.js",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "validate": "npm run lint && npm test"
+  },
+  "devDependencies": {
+    "eslint": "^9.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OMARVII/Neuroshield"
+  },
+  "bugs": {
+    "url": "https://github.com/OMARVII/Neuroshield/issues"
+  },
+  "homepage": "https://github.com/OMARVII/Neuroshield#readme",
+  "keywords": [
+    "chrome-extension",
+    "accessibility",
+    "epilepsy",
+    "photosensitivity",
+    "wcag",
+    "flash-detection",
+    "migraine",
+    "visual-snow"
+  ]
+}

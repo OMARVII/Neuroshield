@@ -2,7 +2,9 @@
 
 **Real-time photosensitivity protection for the web.**
 
-[![Pre-launch](https://img.shields.io/badge/status-pre--launch-orange.svg)](#install) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![Tests: 65 passed](https://img.shields.io/badge/tests-65%20passed-brightgreen.svg)](#testing)
+[![Pre-launch](https://img.shields.io/badge/status-pre--launch-orange.svg)](#install) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![Tests: 70 passed](https://img.shields.io/badge/tests-70%20passed-brightgreen.svg)](#testing)
+
+> **Pre-launch:** NeuroShield is not yet on the Chrome Web Store. Install manually below. Store listing coming soon.
 
 A Chrome extension that detects and blocks flashing, strobing, and dangerous visual patterns across **all** websites — protecting people with epilepsy, migraines, and visual snow syndrome.
 

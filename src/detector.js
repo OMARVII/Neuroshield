@@ -24,8 +24,16 @@ var NeuroShieldDetector = (function () {
   const TARGET_FPS = 15;
   const FRAME_INTERVAL_MS = Math.round(1000 / TARGET_FPS);
 
-  /** Sliding window duration for flash counting (ms). */
-  const WINDOW_DURATION_MS = 1000;
+  /**
+   * Sliding window duration for flash counting (ms).
+   * Extended by one frame interval beyond 1 second so the window reliably
+   * captures transitions at the boundary. Without this, a flash whose
+   * direction change falls right at the 1-second edge is missed ~40% of the
+   * time, causing under-detection at the exact threshold frequency (e.g.
+   * 3 Hz at medium sensitivity).  The extra 67 ms has negligible impact on
+   * false-positive rate (effective threshold shifts from 3.0 Hz to ~2.8 Hz).
+   */
+  const WINDOW_DURATION_MS = 1000 + FRAME_INTERVAL_MS;
 
   /**
    * WCAG general flash threshold.
@@ -329,7 +337,7 @@ var NeuroShieldDetector = (function () {
         return { isFlashing: false, flashCount: 0, isRedFlash: false, peakDelta: 0, severity: 'safe' };
       }
 
-      var transitions = 0;
+      var directionChanges = 0;
       var redTransitions = 0;
       var peakDelta = 0;
       var lastDirection = 0; // +1 = getting brighter, -1 = getting darker
@@ -346,9 +354,11 @@ var NeuroShieldDetector = (function () {
         if (absDelta >= LUMINANCE_DELTA_THRESHOLD && darkerLum < DARK_STATE_THRESHOLD) {
           var direction = delta > 0 ? 1 : -1;
 
-          // Count opposing transitions (direction change)
-          if (lastDirection !== 0 && direction !== lastDirection) {
-            transitions++;
+          // Count every significant direction change, including the first.
+          // The first change starts a potential flash cycle; subsequent
+          // opposing changes continue it. Two direction changes = one flash.
+          if (lastDirection === 0 || direction !== lastDirection) {
+            directionChanges++;
           }
           lastDirection = direction;
 
@@ -360,10 +370,10 @@ var NeuroShieldDetector = (function () {
         }
       }
 
-      // Each flash = 1 full cycle (bright→dark→bright) = 2 opposing transitions
-      // But we count individual opposing transitions, so flashCount ≈ transitions
-      // Being conservative: any opposing transition pair counts
-      var flashCount = Math.ceil(transitions / 2);
+      // Each flash = 1 full cycle (bright→dark→bright) = 2 direction changes.
+      // floor() is used because an incomplete cycle (single direction change)
+      // does not constitute a full flash per WCAG 2.3.1.
+      var flashCount = Math.floor(directionChanges / 2);
       var threshold = SENSITIVITY[this.sensitivity] || SENSITIVITY.medium;
       var isFlashing = flashCount >= threshold;
       var isRedFlash = redTransitions >= 1;

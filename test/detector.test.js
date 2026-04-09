@@ -361,14 +361,13 @@ describe('Flash detection (_analyzeWindow integration)', () => {
   });
 
   it('does NOT trigger at medium for 2 flash cycles but DOES trigger at high', () => {
-    // 2 flash cycles = 4 opposing transitions = ceil(4/2) = 2 flashes
+    // 2 complete cycles: D→B→D→B→D (4 direction changes → floor(4/2)=2)
     const history = [
       { timestamp: 0, luminance: 0.0, redRatio: 0 },
-      { timestamp: 100, luminance: 0.9, redRatio: 0 },   // up
-      { timestamp: 200, luminance: 0.0, redRatio: 0 },   // down (transition 1)
-      { timestamp: 300, luminance: 0.9, redRatio: 0 },   // up (transition 2)
-      { timestamp: 400, luminance: 0.0, redRatio: 0 },   // down (transition 3)
-      { timestamp: 500, luminance: 0.9, redRatio: 0 },   // up (transition 4)
+      { timestamp: 100, luminance: 0.9, redRatio: 0 },   // up (change 1)
+      { timestamp: 200, luminance: 0.0, redRatio: 0 },   // down (change 2)
+      { timestamp: 300, luminance: 0.9, redRatio: 0 },   // up (change 3)
+      { timestamp: 400, luminance: 0.0, redRatio: 0 },   // down (change 4)
     ];
 
     const medDet = createDetectorWithHistory('medium', history);
@@ -380,6 +379,34 @@ describe('Flash detection (_analyzeWindow integration)', () => {
     const highResult = highDet._analyzeWindow();
     assert.strictEqual(highResult.isFlashing, true,
       `high should trigger at ${highResult.flashCount} flashes`);
+  });
+
+  it('triggers at maximum for a single complete flash cycle', () => {
+    // 1 complete cycle: D→B→D (2 direction changes → floor(2/2)=1)
+    const history = [
+      { timestamp: 0, luminance: 0.1, redRatio: 0 },
+      { timestamp: 67, luminance: 0.8, redRatio: 0 },
+      { timestamp: 134, luminance: 0.1, redRatio: 0 },
+    ];
+    const det = createDetectorWithHistory('maximum', history);
+    const result = det._analyzeWindow();
+    assert.strictEqual(result.isFlashing, true,
+      `maximum should trigger at ${result.flashCount} flash`);
+    assert.strictEqual(result.flashCount, 1);
+  });
+
+  it('does NOT trigger at maximum for a single direction change (half-cycle)', () => {
+    // Half cycle: D→B only (1 direction change → floor(1/2)=0)
+    const history = [
+      { timestamp: 0, luminance: 0.1, redRatio: 0 },
+      { timestamp: 67, luminance: 0.1, redRatio: 0 },
+      { timestamp: 134, luminance: 0.8, redRatio: 0 },
+    ];
+    const det = createDetectorWithHistory('maximum', history);
+    const result = det._analyzeWindow();
+    assert.strictEqual(result.isFlashing, false,
+      'a single direction change is not a complete flash');
+    assert.strictEqual(result.flashCount, 0);
   });
 
   it('ignores luminance changes below the 0.1 threshold', () => {
@@ -504,6 +531,83 @@ describe('Flash detection (_analyzeWindow integration)', () => {
     if (result.isFlashing && result.flashCount < 10 && !result.isRedFlash) {
       assert.strictEqual(result.severity, 'warning');
     }
+  });
+});
+
+describe('realistic 15fps simulation', () => {
+  it('detects 3Hz flashing at medium when sampled at 15fps over full window', () => {
+    // Simulate exactly what the real detector sees: 15fps sampling (67ms apart)
+    // over the extended window (1067ms). A 3Hz signal alternates every ~167ms.
+    const fps = 15;
+    const interval = Math.round(1000 / fps);       // 67ms
+    const windowMs = 1000 + interval;               // 1067ms
+    const flashHz = 3;
+    const halfPeriod = 1000 / (flashHz * 2);        // ~167ms per half-cycle
+
+    const history = [];
+    for (let t = 0; t <= windowMs; t += interval) {
+      // Which half-cycle are we in?  Even = dark, odd = bright.
+      const phase = Math.floor(t / halfPeriod);
+      history.push({
+        timestamp: t,
+        luminance: phase % 2 === 0 ? 0.05 : 0.85,
+        redRatio: 0,
+      });
+    }
+
+    const det = createDetectorWithHistory('medium', history);
+    const result = det._analyzeWindow();
+    assert.strictEqual(result.isFlashing, true,
+      `3Hz at medium should trigger (got ${result.flashCount} flashes from ${history.length} frames)`);
+    assert.ok(result.flashCount >= 3,
+      `expected >= 3 flashes, got ${result.flashCount}`);
+  });
+
+  it('does NOT detect 2Hz flashing at medium (below 3Hz threshold)', () => {
+    const fps = 15;
+    const interval = Math.round(1000 / fps);
+    const windowMs = 1000 + interval;
+    const flashHz = 2;
+    const halfPeriod = 1000 / (flashHz * 2);
+
+    const history = [];
+    for (let t = 0; t <= windowMs; t += interval) {
+      const phase = Math.floor(t / halfPeriod);
+      history.push({
+        timestamp: t,
+        luminance: phase % 2 === 0 ? 0.05 : 0.85,
+        redRatio: 0,
+      });
+    }
+
+    const det = createDetectorWithHistory('medium', history);
+    const result = det._analyzeWindow();
+    assert.strictEqual(result.isFlashing, false,
+      `2Hz at medium should NOT trigger (got ${result.flashCount} flashes)`);
+  });
+
+  it('detects 1Hz flashing at maximum sensitivity', () => {
+    const fps = 15;
+    const interval = Math.round(1000 / fps);
+    const windowMs = 1000 + interval;
+    const flashHz = 1;
+    const halfPeriod = 1000 / (flashHz * 2);
+
+    const history = [];
+    for (let t = 0; t <= windowMs; t += interval) {
+      const phase = Math.floor(t / halfPeriod);
+      history.push({
+        timestamp: t,
+        luminance: phase % 2 === 0 ? 0.05 : 0.85,
+        redRatio: 0,
+      });
+    }
+
+    const det = createDetectorWithHistory('maximum', history);
+    const result = det._analyzeWindow();
+    assert.strictEqual(result.isFlashing, true,
+      `1Hz at maximum should trigger (got ${result.flashCount} flashes)`);
+    assert.strictEqual(result.flashCount, 1);
   });
 });
 

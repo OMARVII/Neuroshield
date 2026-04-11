@@ -96,37 +96,230 @@ var NeuroShieldDetector = (function () {
     LINEAR_LUT[i] = linearize(i);
   }
 
+  // ─── Shared Flash Window Analysis ─────────────────────────────────────
+
+  /**
+   * Analyze a sliding window of frame history for flash transitions.
+   * Counts opposing luminance transitions that exceed the WCAG threshold.
+   *
+   * A "flash" = one bright→dark→bright (or dark→bright→dark) cycle.
+   * This means 2 opposing transitions = 1 flash.
+   * WCAG limit: 3 flashes/sec = 6 transitions/sec.
+   *
+   * @param {Array<{timestamp: number, luminance: number, redRatio: number}>} history
+   * @param {string} sensitivity — 'low' | 'medium' | 'high' | 'maximum'
+   * @returns {{ isFlashing: boolean, flashCount: number, isRedFlash: boolean, peakDelta: number, severity: string }}
+   */
+  function analyzeFlashWindow(history, sensitivity) {
+    if (history.length < 3) {
+      return { isFlashing: false, flashCount: 0, isRedFlash: false, peakDelta: 0, severity: 'safe' };
+    }
+
+    var directionChanges = 0;
+    var redTransitions = 0;
+    var peakDelta = 0;
+    var lastDirection = 0; // +1 = getting brighter, -1 = getting darker
+
+    for (var i = 1; i < history.length; i++) {
+      var delta = history[i].luminance - history[i - 1].luminance;
+      var absDelta = Math.abs(delta);
+      var darkerLum = Math.min(history[i].luminance, history[i - 1].luminance);
+
+      // Track peak delta
+      if (absDelta > peakDelta) peakDelta = absDelta;
+
+      // Check if this is a significant luminance change
+      if (absDelta >= LUMINANCE_DELTA_THRESHOLD && darkerLum < DARK_STATE_THRESHOLD) {
+        var direction = delta > 0 ? 1 : -1;
+
+        // Count every significant direction change, including the first.
+        // The first change starts a potential flash cycle; subsequent
+        // opposing changes continue it. Two direction changes = one flash.
+        if (lastDirection === 0 || direction !== lastDirection) {
+          directionChanges++;
+        }
+        lastDirection = direction;
+
+        // Check for red flash
+        var avgRedRatio = (history[i].redRatio + history[i - 1].redRatio) / 2;
+        if (avgRedRatio >= RED_RATIO_THRESHOLD) {
+          redTransitions++;
+        }
+      }
+    }
+
+    // Each flash = 1 full cycle (bright→dark→bright) = 2 direction changes.
+    // floor() is used because an incomplete cycle (single direction change)
+    // does not constitute a full flash per WCAG 2.3.1.
+    var flashCount = Math.floor(directionChanges / 2);
+    var threshold = SENSITIVITY[sensitivity] || SENSITIVITY.medium;
+    var isFlashing = flashCount >= threshold;
+    var isRedFlash = redTransitions >= 1;
+
+    // Severity classification
+    var severity = 'safe';
+    if (isFlashing) {
+      if (flashCount >= 10 || isRedFlash) {
+        severity = 'danger';
+      } else if (flashCount >= threshold) {
+        severity = 'warning';
+      }
+    }
+
+    // Fast path: whole-frame already triggers, skip region checks
+    if (isFlashing) {
+      return {
+        isFlashing: isFlashing,
+        flashCount: flashCount,
+        isRedFlash: isRedFlash,
+        peakDelta: peakDelta,
+        severity: severity,
+      };
+    }
+
+    // Slow path: check each region independently for localized flashing.
+    // Only runs when whole-frame doesn't trigger. Skip if history lacks region data.
+    var hasRegions = history[0] && history[0].regions && history[0].regions.length === REGION_COUNT;
+    if (hasRegions) {
+      for (var ri = 0; ri < REGION_COUNT; ri++) {
+        var rDirChanges = 0;
+        var rRedTransitions = 0;
+        var rPeakDelta = 0;
+        var rLastDir = 0;
+
+        for (var rj = 1; rj < history.length; rj++) {
+          var rDelta = history[rj].regions[ri].luminance - history[rj - 1].regions[ri].luminance;
+          var rAbsDelta = Math.abs(rDelta);
+          var rDarkerLum = Math.min(history[rj].regions[ri].luminance, history[rj - 1].regions[ri].luminance);
+
+          if (rAbsDelta > rPeakDelta) rPeakDelta = rAbsDelta;
+
+          if (rAbsDelta >= LUMINANCE_DELTA_THRESHOLD && rDarkerLum < DARK_STATE_THRESHOLD) {
+            var rDir = rDelta > 0 ? 1 : -1;
+            if (rLastDir === 0 || rDir !== rLastDir) {
+              rDirChanges++;
+            }
+            rLastDir = rDir;
+
+            var rAvgRed = (history[rj].regions[ri].redRatio + history[rj - 1].regions[ri].redRatio) / 2;
+            if (rAvgRed >= RED_RATIO_THRESHOLD) {
+              rRedTransitions++;
+            }
+          }
+        }
+
+        var rFlashCount = Math.floor(rDirChanges / 2);
+        var rIsFlashing = rFlashCount >= threshold;
+        if (rIsFlashing) {
+          var rIsRedFlash = rRedTransitions >= 1;
+          var rSeverity = 'warning';
+          if (rFlashCount >= 10 || rIsRedFlash) {
+            rSeverity = 'danger';
+          }
+          return {
+            isFlashing: true,
+            flashCount: rFlashCount,
+            isRedFlash: rIsRedFlash,
+            peakDelta: rPeakDelta > peakDelta ? rPeakDelta : peakDelta,
+            severity: rSeverity,
+          };
+        }
+      }
+    }
+
+    return {
+      isFlashing: false,
+      flashCount: flashCount,
+      isRedFlash: isRedFlash,
+      peakDelta: peakDelta,
+      severity: 'safe',
+    };
+  }
+
   // ─── Frame Analysis ──────────────────────────────────────────────────
+
+  /** Number of region divisions per axis in the 4×4 grid. */
+  const REGION_COLS = 4;
+  const REGION_ROWS = 4;
+  const REGION_COUNT = REGION_COLS * REGION_ROWS;
+  const REGION_WIDTH = SAMPLE_WIDTH / REGION_COLS;   // 8
+  const REGION_HEIGHT = SAMPLE_HEIGHT / REGION_ROWS; // 8
+  const PIXELS_PER_REGION = REGION_WIDTH * REGION_HEIGHT; // 64
 
   /**
    * Analyze a single frame's pixel data. Returns average luminance
-   * and average red ratio for flash classification.
+   * and average red ratio for flash classification, plus per-region
+   * breakdowns for spatial flash detection.
    *
-   * @param {Uint8ClampedArray} data — RGBA pixel data
-   * @returns {{ luminance: number, redRatio: number }}
+   * The frame is divided into a 4×4 grid of 8×8 pixel regions.
+   * Region index = row * 4 + col.
+   *
+   * @param {Uint8ClampedArray} data — RGBA pixel data (expected 32×32 = 1024 pixels)
+   * @returns {{ luminance: number, redRatio: number, regions: Array<{luminance: number, redRatio: number}> }}
    */
   function analyzeFrame(data) {
-    let totalLuminance = 0;
-    let totalRedRatio = 0;
-    const pixelCount = data.length / 4;
+    var totalLuminance = 0;
+    var totalRedRatio = 0;
+    var pixelCount = data.length / 4;
 
-    for (let i = 0; i < data.length; i += 4) {
-      const rLin = LINEAR_LUT[data[i]];
-      const gLin = LINEAR_LUT[data[i + 1]];
-      const bLin = LINEAR_LUT[data[i + 2]];
+    // Per-region accumulators
+    var regionLuminance = new Array(REGION_COUNT);
+    var regionRedRatio = new Array(REGION_COUNT);
+    for (var r = 0; r < REGION_COUNT; r++) {
+      regionLuminance[r] = 0;
+      regionRedRatio[r] = 0;
+    }
 
-      totalLuminance += relativeLuminance(rLin, gLin, bLin);
+    for (var i = 0; i < data.length; i += 4) {
+      var rLin = LINEAR_LUT[data[i]];
+      var gLin = LINEAR_LUT[data[i + 1]];
+      var bLin = LINEAR_LUT[data[i + 2]];
+
+      var lum = relativeLuminance(rLin, gLin, bLin);
+      totalLuminance += lum;
 
       // Red ratio for red flash detection
-      const sum = data[i] + data[i + 1] + data[i + 2];
+      var sum = data[i] + data[i + 1] + data[i + 2];
+      var rr = 0;
       if (sum > 0) {
-        totalRedRatio += data[i] / sum;
+        rr = data[i] / sum;
+        totalRedRatio += rr;
+      }
+
+      // Accumulate into region (only when data matches expected 32×32 layout)
+      if (pixelCount === SAMPLE_WIDTH * SAMPLE_HEIGHT) {
+        var pixelIndex = i / 4;
+        var pixelY = Math.floor(pixelIndex / SAMPLE_WIDTH);
+        var pixelX = pixelIndex % SAMPLE_WIDTH;
+        var regionRow = Math.floor(pixelY / REGION_HEIGHT);
+        var regionCol = Math.floor(pixelX / REGION_WIDTH);
+        var regionIdx = regionRow * REGION_COLS + regionCol;
+        regionLuminance[regionIdx] += lum;
+        regionRedRatio[regionIdx] += rr;
+      }
+    }
+
+    // Build regions array
+    var regions = new Array(REGION_COUNT);
+    for (var ri = 0; ri < REGION_COUNT; ri++) {
+      if (pixelCount === SAMPLE_WIDTH * SAMPLE_HEIGHT) {
+        regions[ri] = {
+          luminance: regionLuminance[ri] / PIXELS_PER_REGION,
+          redRatio: regionRedRatio[ri] / PIXELS_PER_REGION,
+        };
+      } else {
+        // Non-standard frame size: fill with whole-frame averages
+        regions[ri] = {
+          luminance: totalLuminance / pixelCount,
+          redRatio: totalRedRatio / pixelCount,
+        };
       }
     }
 
     return {
       luminance: totalLuminance / pixelCount,
       redRatio: totalRedRatio / pixelCount,
+      regions: regions,
     };
   }
 
@@ -156,8 +349,19 @@ var NeuroShieldDetector = (function () {
       desynchronized: true,
     });
 
+    // Canvas context loss handling
+    this.contextLost = false;
+    var self = this;
+    this.canvas.addEventListener('contextlost', function(e) {
+      e.preventDefault();
+      self.contextLost = true;
+    });
+    this.canvas.addEventListener('contextrestored', function() {
+      self.contextLost = false;
+    });
+
     // Sliding window of frame measurements
-    // Each entry: { timestamp, luminance, redRatio }
+    // Each entry: { timestamp, luminance, redRatio, regions }
     this.frameHistory = [];
 
     // State
@@ -200,6 +404,7 @@ var NeuroShieldDetector = (function () {
     destroy: function () {
       this.stop();
       this.destroyed = true;
+      this.contextLost = false;
       this.frameHistory = [];
       this.element = null;
       this.canvas = null;
@@ -258,6 +463,7 @@ var NeuroShieldDetector = (function () {
           timestamp: timestamp,
           luminance: frameData.luminance,
           redRatio: frameData.redRatio,
+          regions: frameData.regions,
         });
 
         var cutoff = timestamp - WINDOW_DURATION_MS;
@@ -295,6 +501,7 @@ var NeuroShieldDetector = (function () {
      * @returns {{ luminance: number, redRatio: number } | null}
      */
     _sampleFrame: function () {
+      if (this.contextLost) return null;
       if (this.corsBlocked) return null;
 
       try {
@@ -322,79 +529,12 @@ var NeuroShieldDetector = (function () {
 
     /**
      * Analyze the sliding window for flash transitions.
-     * Counts opposing luminance transitions that exceed the WCAG threshold.
-     *
-     * A "flash" = one bright→dark→bright (or dark→bright→dark) cycle.
-     * This means 2 opposing transitions = 1 flash.
-     * WCAG limit: 3 flashes/sec = 6 transitions/sec.
-     *
+     * Delegates to the shared analyzeFlashWindow helper.
      * @private
      * @returns {{ isFlashing: boolean, flashCount: number, isRedFlash: boolean, peakDelta: number, severity: string }}
      */
     _analyzeWindow: function () {
-      var history = this.frameHistory;
-      if (history.length < 3) {
-        return { isFlashing: false, flashCount: 0, isRedFlash: false, peakDelta: 0, severity: 'safe' };
-      }
-
-      var directionChanges = 0;
-      var redTransitions = 0;
-      var peakDelta = 0;
-      var lastDirection = 0; // +1 = getting brighter, -1 = getting darker
-
-      for (var i = 1; i < history.length; i++) {
-        var delta = history[i].luminance - history[i - 1].luminance;
-        var absDelta = Math.abs(delta);
-        var darkerLum = Math.min(history[i].luminance, history[i - 1].luminance);
-
-        // Track peak delta
-        if (absDelta > peakDelta) peakDelta = absDelta;
-
-        // Check if this is a significant luminance change
-        if (absDelta >= LUMINANCE_DELTA_THRESHOLD && darkerLum < DARK_STATE_THRESHOLD) {
-          var direction = delta > 0 ? 1 : -1;
-
-          // Count every significant direction change, including the first.
-          // The first change starts a potential flash cycle; subsequent
-          // opposing changes continue it. Two direction changes = one flash.
-          if (lastDirection === 0 || direction !== lastDirection) {
-            directionChanges++;
-          }
-          lastDirection = direction;
-
-          // Check for red flash
-          var avgRedRatio = (history[i].redRatio + history[i - 1].redRatio) / 2;
-          if (avgRedRatio >= RED_RATIO_THRESHOLD) {
-            redTransitions++;
-          }
-        }
-      }
-
-      // Each flash = 1 full cycle (bright→dark→bright) = 2 direction changes.
-      // floor() is used because an incomplete cycle (single direction change)
-      // does not constitute a full flash per WCAG 2.3.1.
-      var flashCount = Math.floor(directionChanges / 2);
-      var threshold = SENSITIVITY[this.sensitivity] || SENSITIVITY.medium;
-      var isFlashing = flashCount >= threshold;
-      var isRedFlash = redTransitions >= 1;
-
-      // Severity classification
-      var severity = 'safe';
-      if (isFlashing) {
-        if (flashCount >= 10 || isRedFlash) {
-          severity = 'danger';
-        } else if (flashCount >= threshold) {
-          severity = 'warning';
-        }
-      }
-
-      return {
-        isFlashing: isFlashing,
-        flashCount: flashCount,
-        isRedFlash: isRedFlash,
-        peakDelta: peakDelta,
-        severity: severity,
-      };
+      return analyzeFlashWindow(this.frameHistory, this.sensitivity);
     },
   };
 
@@ -473,48 +613,40 @@ var NeuroShieldDetector = (function () {
 
         var rgb = this._parseColor(bgColor);
         var luminance = 0;
+        var redRatio = 0;
         if (rgb) {
           luminance = relativeLuminance(
             LINEAR_LUT[rgb.r],
             LINEAR_LUT[rgb.g],
             LINEAR_LUT[rgb.b]
           ) * opacity;
+
+          var sum = rgb.r + rgb.g + rgb.b;
+          if (sum > 0) {
+            redRatio = rgb.r / sum;
+          }
         }
 
         var now = performance.now();
-        this.history.push({ timestamp: now, luminance: luminance });
+        this.history.push({ timestamp: now, luminance: luminance, redRatio: redRatio });
 
         var cutoff = now - WINDOW_DURATION_MS;
         while (this.history.length > 0 && this.history[0].timestamp < cutoff) {
           this.history.shift();
         }
 
-        var transitions = 0;
-        var lastDir = 0;
-        for (var i = 1; i < this.history.length; i++) {
-          var delta = this.history[i].luminance - this.history[i - 1].luminance;
-          var darkerLum = Math.min(this.history[i].luminance, this.history[i - 1].luminance);
-          if (Math.abs(delta) >= LUMINANCE_DELTA_THRESHOLD && darkerLum < DARK_STATE_THRESHOLD) {
-            var dir = delta > 0 ? 1 : -1;
-            if (lastDir !== 0 && dir !== lastDir) transitions++;
-            lastDir = dir;
-          }
-        }
+        var result = analyzeFlashWindow(this.history, this.sensitivity);
 
-        var flashCount = Math.ceil(transitions / 2);
-        var threshold = SENSITIVITY[this.sensitivity] || SENSITIVITY.medium;
-        var isFlashing = flashCount >= threshold;
-
-        if (isFlashing && !this.isFlashing) {
+        if (result.isFlashing && !this.isFlashing) {
           this.isFlashing = true;
           this.onFlashDetected({
             element: this.element,
-            flashesPerSecond: flashCount,
-            isRedFlash: false,
-            severity: flashCount >= 10 ? 'danger' : 'warning',
+            flashesPerSecond: result.flashCount,
+            isRedFlash: result.isRedFlash,
+            severity: result.severity,
             type: 'css-animation',
           });
-        } else if (!isFlashing && this.isFlashing) {
+        } else if (!result.isFlashing && this.isFlashing) {
           this.isFlashing = false;
           this.onSafe();
         }
@@ -547,6 +679,7 @@ var NeuroShieldDetector = (function () {
     SENSITIVITY: SENSITIVITY,
     // Expose for testing
     _analyzeFrame: analyzeFrame,
+    _analyzeFlashWindow: analyzeFlashWindow,
     _linearize: linearize,
     _relativeLuminance: relativeLuminance,
   };

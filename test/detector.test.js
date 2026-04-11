@@ -12,6 +12,7 @@ const context = vm.createContext({
         drawImage: () => {},
         getImageData: () => ({ data: new Uint8ClampedArray(0) }),
       }),
+      addEventListener: () => {},
       width: 0,
       height: 0,
     }),
@@ -36,6 +37,7 @@ const {
   _linearize,
   _relativeLuminance,
   _analyzeFrame,
+  _analyzeFlashWindow,
   SENSITIVITY,
   FlashDetector,
   CSSFlashDetector,
@@ -757,5 +759,252 @@ describe('End-to-end analysis pipeline', () => {
     const result = det._analyzeWindow();
     assert.strictEqual(result.isFlashing, true);
     assert.strictEqual(result.isRedFlash, true);
+  });
+});
+
+// ─── P0 Fix Tests ──────────────────────────────────────────────────────
+
+describe('analyzeFlashWindow (shared helper)', () => {
+  it('is exported and callable', () => {
+    assert.strictEqual(typeof _analyzeFlashWindow, 'function');
+  });
+
+  it('returns identical results to _analyzeWindow for the same input', () => {
+    const history = [];
+    for (let i = 0; i < 20; i++) {
+      history.push({
+        timestamp: i * 50,
+        luminance: i % 2 === 0 ? 0.0 : 0.9,
+        redRatio: 0,
+      });
+    }
+    const det = createDetectorWithHistory('medium', history);
+    const windowResult = det._analyzeWindow();
+    const helperResult = _analyzeFlashWindow(history, 'medium');
+
+    assert.strictEqual(helperResult.isFlashing, windowResult.isFlashing);
+    assert.strictEqual(helperResult.flashCount, windowResult.flashCount);
+    assert.strictEqual(helperResult.isRedFlash, windowResult.isRedFlash);
+    assertApprox(helperResult.peakDelta, windowResult.peakDelta, 1e-10, 'peakDelta match');
+    assert.strictEqual(helperResult.severity, windowResult.severity);
+  });
+
+  it('detects red flash in window analysis', () => {
+    const history = [
+      { timestamp: 0, luminance: 0.0, redRatio: 0.9 },
+      { timestamp: 50, luminance: 0.5, redRatio: 0.85 },
+      { timestamp: 100, luminance: 0.0, redRatio: 0.9 },
+      { timestamp: 150, luminance: 0.5, redRatio: 0.85 },
+      { timestamp: 200, luminance: 0.0, redRatio: 0.9 },
+      { timestamp: 250, luminance: 0.5, redRatio: 0.85 },
+      { timestamp: 300, luminance: 0.0, redRatio: 0.9 },
+      { timestamp: 350, luminance: 0.5, redRatio: 0.85 },
+    ];
+    const result = _analyzeFlashWindow(history, 'medium');
+    assert.strictEqual(result.isRedFlash, true);
+  });
+
+  it('classifies severity as "danger" for red flash', () => {
+    const history = [];
+    for (let i = 0; i < 20; i++) {
+      history.push({
+        timestamp: i * 50,
+        luminance: i % 2 === 0 ? 0.0 : 0.9,
+        redRatio: 0.9,
+      });
+    }
+    const result = _analyzeFlashWindow(history, 'medium');
+    assert.strictEqual(result.isFlashing, true);
+    assert.strictEqual(result.isRedFlash, true);
+    assert.strictEqual(result.severity, 'danger');
+  });
+});
+
+describe('CSSFlashDetector unified analysis', () => {
+  it('detects red flashes via unified analysis path', () => {
+    const det = new CSSFlashDetector({}, {
+      sensitivity: 'medium',
+      onFlashDetected: () => {},
+      onSafe: () => {},
+    });
+    // Manually populate history with high redRatio entries that flash
+    det.history = [];
+    for (let i = 0; i < 20; i++) {
+      det.history.push({
+        timestamp: i * 50,
+        luminance: i % 2 === 0 ? 0.0 : 0.9,
+        redRatio: 0.9,
+      });
+    }
+    // Use analyzeFlashWindow directly to verify the CSSFlashDetector
+    // would get red flash detection from the shared helper
+    const result = _analyzeFlashWindow(det.history, det.sensitivity);
+    assert.strictEqual(result.isRedFlash, true);
+  });
+
+  it('classifies severity as "danger" when red flash is detected', () => {
+    const det = new CSSFlashDetector({}, {
+      sensitivity: 'medium',
+      onFlashDetected: () => {},
+      onSafe: () => {},
+    });
+    det.history = [];
+    for (let i = 0; i < 20; i++) {
+      det.history.push({
+        timestamp: i * 50,
+        luminance: i % 2 === 0 ? 0.0 : 0.5,
+        redRatio: 0.85,
+      });
+    }
+    const result = _analyzeFlashWindow(det.history, det.sensitivity);
+    assert.strictEqual(result.isFlashing, true);
+    assert.strictEqual(result.isRedFlash, true);
+    assert.strictEqual(result.severity, 'danger');
+  });
+});
+
+describe('Spatial (region-based) flash analysis', () => {
+  it('_analyzeFrame returns regions array with 16 entries for 32x32 frame', () => {
+    const data = makeFrame(128, 128, 128, 255, 32 * 32);
+    const result = _analyzeFrame(data);
+    assert.ok(Array.isArray(result.regions), 'regions should be an array');
+    assert.strictEqual(result.regions.length, 16, 'should have 16 regions');
+    for (let i = 0; i < 16; i++) {
+      assert.ok('luminance' in result.regions[i], `region ${i} should have luminance`);
+      assert.ok('redRatio' in result.regions[i], `region ${i} should have redRatio`);
+    }
+  });
+
+  it('frame with one bright quadrant has that region luminance higher than dark regions', () => {
+    // 32x32 frame: top-left 8x8 region (region 0) is white, rest is black
+    const data = new Uint8ClampedArray(32 * 32 * 4);
+    for (let y = 0; y < 32; y++) {
+      for (let x = 0; x < 32; x++) {
+        const idx = (y * 32 + x) * 4;
+        if (y < 8 && x < 8) {
+          data[idx] = 255; data[idx + 1] = 255; data[idx + 2] = 255;
+        } else {
+          data[idx] = 0; data[idx + 1] = 0; data[idx + 2] = 0;
+        }
+        data[idx + 3] = 255;
+      }
+    }
+    const result = _analyzeFrame(data);
+    // Region 0 (top-left) should be bright
+    assert.ok(result.regions[0].luminance > 0.9,
+      `region 0 should be bright, got ${result.regions[0].luminance}`);
+    // Other regions should be dark
+    for (let i = 1; i < 16; i++) {
+      assert.ok(result.regions[i].luminance < 0.01,
+        `region ${i} should be dark, got ${result.regions[i].luminance}`);
+    }
+  });
+
+  it('localized flash in one region triggers detection when whole-frame average does not', () => {
+    // Build history where only region 0 strobes (bright/dark alternation)
+    // but whole-frame luminance changes are small (~1/16 of region delta)
+    function makeRegions(region0Lum) {
+      const regions = [];
+      for (let r = 0; r < 16; r++) {
+        regions.push({
+          luminance: r === 0 ? region0Lum : 0.3,
+          redRatio: 0,
+        });
+      }
+      return regions;
+    }
+
+    const history = [];
+    for (let i = 0; i < 20; i++) {
+      const region0Lum = i % 2 === 0 ? 0.0 : 0.9;
+      // Whole-frame average: (0.0 or 0.9 + 15*0.3) / 16
+      const wholeLum = (region0Lum + 15 * 0.3) / 16;
+      history.push({
+        timestamp: i * 50,
+        luminance: wholeLum,
+        redRatio: 0,
+        regions: makeRegions(region0Lum),
+      });
+    }
+
+    const result = _analyzeFlashWindow(history, 'medium');
+    // Whole-frame delta is ~0.056 (below 0.1 threshold), so whole-frame won't trigger.
+    // But region 0 has delta 0.9, which should trigger via spatial analysis.
+    assert.strictEqual(result.isFlashing, true,
+      'localized flash should trigger via region-based analysis');
+  });
+
+  it('uniform flashing still triggers (backward compat)', () => {
+    function makeUniformRegions(lum) {
+      const regions = [];
+      for (let r = 0; r < 16; r++) {
+        regions.push({ luminance: lum, redRatio: 0 });
+      }
+      return regions;
+    }
+
+    const history = [];
+    for (let i = 0; i < 20; i++) {
+      const lum = i % 2 === 0 ? 0.0 : 0.9;
+      history.push({
+        timestamp: i * 50,
+        luminance: lum,
+        redRatio: 0,
+        regions: makeUniformRegions(lum),
+      });
+    }
+    const result = _analyzeFlashWindow(history, 'medium');
+    assert.strictEqual(result.isFlashing, true,
+      'uniform flashing should still trigger via whole-frame path');
+  });
+
+  it('steady frame with one bright region does NOT trigger (no flashing)', () => {
+    function makeRegionsStatic() {
+      const regions = [];
+      for (let r = 0; r < 16; r++) {
+        regions.push({
+          luminance: r === 0 ? 0.9 : 0.1,
+          redRatio: 0,
+        });
+      }
+      return regions;
+    }
+
+    const history = [];
+    for (let i = 0; i < 20; i++) {
+      history.push({
+        timestamp: i * 50,
+        luminance: 0.15, // roughly (0.9 + 15*0.1)/16
+        redRatio: 0,
+        regions: makeRegionsStatic(),
+      });
+    }
+    const result = _analyzeFlashWindow(history, 'medium');
+    assert.strictEqual(result.isFlashing, false,
+      'steady bright region should not trigger');
+  });
+});
+
+describe('Canvas context loss handling', () => {
+  it('contextLost flag defaults to false', () => {
+    const det = new FlashDetector({ tagName: 'VIDEO' }, {});
+    assert.strictEqual(det.contextLost, false);
+  });
+
+  it('_sampleFrame returns null when contextLost is true', () => {
+    const det = new FlashDetector({ tagName: 'CANVAS' }, {
+      onFlashDetected: () => {},
+      onSafe: () => {},
+    });
+    det.contextLost = true;
+    const result = det._sampleFrame();
+    assert.strictEqual(result, null);
+  });
+
+  it('contextLost is reset to false on destroy', () => {
+    const det = new FlashDetector({ tagName: 'VIDEO' }, {});
+    det.contextLost = true;
+    det.destroy();
+    assert.strictEqual(det.contextLost, false);
   });
 });

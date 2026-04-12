@@ -16,3 +16,5 @@ dist/
 *.swo
 web-ext-artifacts/
 launch/
+STORE_LISTING.md
+store-assets/

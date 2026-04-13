@@ -2,9 +2,7 @@
 
 **Real-time photosensitivity protection for the web.**
 
-[![Pre-launch](https://img.shields.io/badge/status-pre--launch-orange.svg)](#install) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![Tests: 70 passed](https://img.shields.io/badge/tests-70%20passed-brightgreen.svg)](#testing)
-
-> **Pre-launch:** NeuroShield is not yet on the Chrome Web Store. Install manually below. Store listing coming soon.
+[![Available in the Chrome Web Store](https://img.shields.io/badge/Chrome%20Web%20Store-Available-brightgreen?logo=google-chrome)](https://chromewebstore.google.com/detail/neuroshield/dbmdhjhmfmdnohcphcmdlfaiipdoldfk) [![Chrome Web Store Version](https://img.shields.io/chrome-web-store/v/dbmdhjhmfmdnohcphcmdlfaiipdoldfk)](https://chromewebstore.google.com/detail/neuroshield/dbmdhjhmfmdnohcphcmdlfaiipdoldfk) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![Tests: 84 passed](https://img.shields.io/badge/tests-84%20passed-brightgreen.svg)](#testing)
 
 A Chrome extension that detects and blocks flashing, strobing, and dangerous visual patterns across **all** websites — protecting people with epilepsy, migraines, and visual snow syndrome.
 
@@ -60,7 +58,11 @@ NeuroShield works everywhere.
 
 ## Install
 
-> **Pre-launch:** NeuroShield is not yet on the Chrome Web Store. Install manually below. Store listing coming soon.
+### Chrome Web Store (recommended)
+
+**[Install NeuroShield](https://chromewebstore.google.com/detail/neuroshield/dbmdhjhmfmdnohcphcmdlfaiipdoldfk)** — one click, auto-updates.
+
+### Manual install (development)
 
 ```bash
 git clone https://github.com/OMARVII/Neuroshield.git
@@ -99,7 +101,7 @@ neuroshield/
 │   ├── neuroshield.css  ← Overlay styles
 │   └── popup/           ← Extension popup (settings UI)
 ├── test/
-│   └── detector.test.js ← 65 unit tests for the detection algorithm
+│   └── detector.test.js ← 84 unit tests for the detection algorithm
 ├── manifest.json        ← Chrome MV3 manifest
 ├── eslint.config.js     ← Linting rules
 └── PRIVACY.md           ← Privacy policy (no data collection)
@@ -111,16 +113,16 @@ neuroshield/
 
 ```bash
 npm install          # Install dev dependencies (ESLint only)
-npm test             # Run 65 unit tests (Node.js built-in test runner)
+npm test             # Run 84 unit tests (Node.js built-in test runner)
 npm run lint         # Run ESLint
 npm run validate     # Run both lint + tests
 ```
 
-Tests cover sRGB linearization, BT.709 luminance, frame analysis, flash counting thresholds, sensitivity boundaries, red flash detection, severity classification, and end-to-end pixel pipeline. Zero external test dependencies.
+Tests cover sRGB linearization, BT.709 luminance, frame analysis, flash counting thresholds, sensitivity boundaries, red flash detection, severity classification, spatial region analysis, canvas context loss, and end-to-end pixel pipeline. Zero external test dependencies.
 
 ## Testing
 
-65 tests across 8 suites:
+84 tests across 13 suites:
 
 | Suite | Tests | Covers |
 |---|---|---|
@@ -129,9 +131,14 @@ Tests cover sRGB linearization, BT.709 luminance, frame analysis, flash counting
 | Frame analysis | 11 | RGB pixels, mixed frames, alpha independence, FP32 consistency |
 | Sensitivity presets | 6 | All levels, ordering, WCAG medium=3 |
 | Flash detection | 14 | Opposing transitions, thresholds, red flash, severity |
+| Realistic 15fps simulation | 2 | Real-time frame rate flash detection |
 | FlashDetector class | 6 | Lifecycle, sensitivity updates, destroy |
 | CSSFlashDetector | 9 | Lifecycle, `_parseColor` edge cases |
 | End-to-end pipeline | 3 | Real pixel data through full analysis chain |
+| analyzeFlashWindow | 4 | Shared helper, no-flash baseline, red flash, severity |
+| CSSFlashDetector unified | 2 | Red flash via CSS colors, severity classification |
+| Spatial analysis | 5 | Region-based detection, localized flash, whole-frame fast path |
+| Canvas context loss | 3 | Context lost/restored events, destroy cleanup |
 
 ---
 

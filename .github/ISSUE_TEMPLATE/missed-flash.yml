@@ -1,0 +1,49 @@
+name: Flashing wasn't hidden
+description: NeuroShield let flashing or strobing content through.
+title: 'Missed flash: '
+labels: [detection, priority]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you. Reports like this are the most important ones we get.
+        **Please don't re-watch flashing content to fill this in.** A link and a rough description are enough.
+  - type: input
+    id: url
+    attributes:
+      label: Where was it?
+      description: Link to the page (and timestamp, for videos), if you can share it.
+      placeholder: https://…
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of content?
+      options:
+        - Video
+        - GIF or animated image
+        - Game or canvas animation
+        - Page animation, banner or ad
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: sensitivity
+    attributes:
+      label: Sensitivity setting
+      options: [Low, Medium, High, Maximum]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Was nothing hidden, or was it hidden too late? Did the popup say the video "can't be scanned"?
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: NeuroShield version, Chrome version, operating system
+      placeholder: NeuroShield 1.1.0, Chrome 140, macOS 15

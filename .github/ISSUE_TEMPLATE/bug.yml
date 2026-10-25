@@ -1,0 +1,30 @@
+name: Bug report
+description: Something else isn't working (false alarms, broken pages, settings, the popup…).
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to …
+        2. …
+  - type: input
+    id: versions
+    attributes:
+      label: NeuroShield version, Chrome version, operating system
+      placeholder: NeuroShield 1.1.0, Chrome 140, Windows 11
+    validations:
+      required: true
+  - type: textarea
+    id: console
+    attributes:
+      label: Console errors (optional)
+      description: Press F12, open the Console tab, and copy anything mentioning NeuroShield.
+      render: text

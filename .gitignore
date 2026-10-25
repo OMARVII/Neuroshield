@@ -18,3 +18,6 @@ web-ext-artifacts/
 launch/
 STORE_LISTING.md
 store-assets/
+test-results/
+playwright-report/
+blob-report/

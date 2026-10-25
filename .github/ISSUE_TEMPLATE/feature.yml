@@ -1,0 +1,19 @@
+name: Feature request
+description: Suggest an improvement.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      placeholder: When I …, I'd like …
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like NeuroShield to do?
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Anything you've tried instead?

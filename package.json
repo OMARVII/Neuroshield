@@ -1,22 +1,32 @@
 {
   "name": "neuroshield",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Real-time photosensitivity protection for the web",
   "private": true,
   "author": "Omar Khaled",
+  "license": "MIT",
   "scripts": {
-    "test": "node --test test/detector.test.js",
-    "lint": "eslint src/",
-    "lint:fix": "eslint src/ --fix",
-    "validate": "npm run lint && npm test"
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "node --test \"test/unit/*.test.js\"",
+    "test:e2e": "playwright test",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "validate": "npm run lint && npm run test:unit && node scripts/build.js --check",
+    "build": "node scripts/build.js",
+    "icons": "node scripts/render-icons.js",
+    "media": "scripts/make-media.sh",
+    "screenshots": "node scripts/screenshots.js",
+    "bench": "node scripts/bench.js"
   },
   "devDependencies": {
-    "eslint": "^9.0.0"
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.64.0",
+    "eslint": "^10.12.0",
+    "globals": "^17.13.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22"
   },
-  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/OMARVII/Neuroshield"
@@ -33,6 +43,8 @@
     "wcag",
     "flash-detection",
     "migraine",
-    "visual-snow"
+    "visual-snow",
+    "seizure",
+    "chrome-extension-mv3"
   ]
 }

@@ -1,0 +1,9 @@
+/*
+ * NeuroShield's on-page UI lives in closed shadow roots and styles itself.
+ * The only thing a page stylesheet can still reach is the ::backdrop of the
+ * top-layer host, so keep that invisible.
+ */
+[data-neuroshield-overlay]::backdrop {
+  display: none !important;
+  background: none !important;
+}

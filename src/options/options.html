@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NeuroShield settings</title>
+  <link rel="icon" href="../../icons/icon-32.png">
+  <link rel="stylesheet" href="../ui/tokens.css">
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="page">
+    <header class="masthead">
+      <img src="../../icons/icon-128.png" width="44" height="44" alt="">
+      <div>
+        <h1>NeuroShield</h1>
+        <p>Photosensitivity protection for the whole web</p>
+      </div>
+      <span class="version" id="version"></span>
+    </header>
+
+    <section class="welcome" id="welcome" hidden>
+      <h2>NeuroShield is on</h2>
+      <p>It checks videos, canvases and animations on the sites you visit, including tabs that were already open, and hides content that flashes faster than your sensitivity allows, usually within a fraction of a second. It stays silent until something flashes.</p>
+      <ul>
+        <li>Pick a sensitivity below. Medium follows the WCAG 2.3.1 standard.</li>
+        <li id="welcomeShortcut">Press <kbd class="shortcut-text">Alt+Shift+H</kbd> to hide everything on a page instantly.</li>
+        <li>Pin NeuroShield to your toolbar (puzzle icon, then the pin) to see what it's doing on each page.</li>
+      </ul>
+      <p><a href="#test">Run a safe test</a> to see it catch a strobe without anything flashing on your screen.</p>
+      <p class="welcome-note">NeuroShield lowers your exposure to flashing content but can't catch every flash, and it isn't a medical device. Chrome doesn't let extensions run on some pages, such as the Chrome Web Store and browser settings.</p>
+    </section>
+
+    <section class="card" aria-labelledby="protectionHeading">
+      <h2 id="protectionHeading">Protection</h2>
+
+      <div class="row">
+        <div class="row-text">
+          <span class="row-title">Protection</span>
+          <span class="row-sub">Hide flashing content on every site.</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="enabled" role="switch" aria-label="Protection">
+          <span class="track"><span class="thumb"></span></span>
+        </label>
+      </div>
+
+      <fieldset class="levels" id="levels">
+        <legend class="row-title">Sensitivity</legend>
+        <label class="level">
+          <input type="radio" name="sensitivity" value="low">
+          <span class="level-body">
+            <span class="level-name">Low</span>
+            <span class="level-desc">Only intense strobing: more than 5 flashes a second.</span>
+          </span>
+        </label>
+        <label class="level">
+          <input type="radio" name="sensitivity" value="medium">
+          <span class="level-body">
+            <span class="level-name">Medium <span class="tag">Recommended</span></span>
+            <span class="level-desc">More than 3 flashes a second, the WCAG 2.3.1 limit for safe content.</span>
+          </span>
+        </label>
+        <label class="level">
+          <input type="radio" name="sensitivity" value="high">
+          <span class="level-body">
+            <span class="level-name">High</span>
+            <span class="level-desc">More than 2 flashes a second. A good fit for migraine and visual snow.</span>
+          </span>
+        </label>
+        <label class="level">
+          <input type="radio" name="sensitivity" value="maximum">
+          <span class="level-body">
+            <span class="level-name">Maximum</span>
+            <span class="level-desc">Any flashing, even a single flash.</span>
+          </span>
+        </label>
+      </fieldset>
+
+      <div class="row">
+        <div class="row-text">
+          <span class="row-title">Pause videos when flashing is hidden</span>
+          <span class="row-sub">So nothing keeps playing out of sight. Showing the video resumes it.</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="pauseOnDetect" role="switch" aria-label="Pause videos when flashing is hidden">
+          <span class="track"><span class="thumb"></span></span>
+        </label>
+      </div>
+
+      <div class="row">
+        <div class="row-text">
+          <label class="row-title" for="unscannable">Videos NeuroShield can't scan</label>
+          <span class="row-sub">Some sites don't let extensions read their videos (cross-origin or DRM-protected).</span>
+        </div>
+        <select id="unscannable">
+          <option value="notice">Show a small notice</option>
+          <option value="dim">Dim them automatically</option>
+          <option value="off">Do nothing</option>
+        </select>
+      </div>
+    </section>
+
+    <section class="card" id="test" aria-labelledby="testHeading">
+      <h2 id="testHeading">Test protection</h2>
+      <p class="card-sub">Plays a fast strobe off screen and checks that NeuroShield catches it. Nothing flashes on your screen.</p>
+      <div class="test-stage" id="testStage" data-state="idle" aria-hidden="true">
+        <div class="test-face" data-face="idle">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3 5 5.8v5.6c0 4.3 2.9 7.9 7 9.6 4.1-1.7 7-5.3 7-9.6V5.8L12 3Z"/>
+            <path d="M8.5 12.3l1.6-2.3 1.9 3.9 1.4-2.2h2.1"/>
+          </svg>
+          <span>The test runs here. Nothing will flash.</span>
+        </div>
+        <div class="test-face" data-face="running">
+          <span class="spinner"></span>
+          <span>Strobe running off screen…</span>
+        </div>
+        <div class="test-face" data-face="missed">
+          <span>Not caught</span>
+        </div>
+      </div>
+      <div class="test-footer">
+        <button class="button" id="runTest" type="button">Run test</button>
+        <p class="test-result" id="testResult" role="status"></p>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="sitesHeading">
+      <h2 id="sitesHeading">Paused sites</h2>
+      <p class="card-sub">NeuroShield doesn't run on these sites or their subdomains.</p>
+      <ul class="sites" id="sites"></ul>
+      <p class="empty" id="sitesEmpty">No paused sites. You can pause a site from the toolbar popup.</p>
+      <form class="add-site" id="addSite">
+        <input id="siteInput" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="example.com" aria-label="Site to pause">
+        <button class="button subtle" type="submit">Pause site</button>
+      </form>
+      <p class="error" id="siteError" role="alert" hidden></p>
+    </section>
+
+    <section class="card" aria-labelledby="shortcutHeading">
+      <h2 id="shortcutHeading">Keyboard shortcut</h2>
+      <div class="row">
+        <div class="row-text">
+          <span class="row-title">Hide everything on the current page</span>
+          <span class="row-sub">Pauses every video and animation and covers the page until you choose to show it.</span>
+        </div>
+        <kbd class="shortcut-text" id="shortcut">Alt+Shift+H</kbd>
+      </div>
+      <button class="link" id="editShortcuts" type="button">Change keyboard shortcuts</button>
+    </section>
+
+    <section class="card" aria-labelledby="activityHeading">
+      <h2 id="activityHeading">Activity</h2>
+      <div class="row">
+        <div class="row-text">
+          <span class="row-title" id="total">No flashing hidden yet</span>
+          <span class="row-sub">Counted on this device only.</span>
+        </div>
+        <button class="button subtle" id="resetStats" type="button">Reset</button>
+      </div>
+    </section>
+
+    <section class="card about" aria-labelledby="aboutHeading">
+      <h2 id="aboutHeading">About</h2>
+      <p>NeuroShield measures every frame against the WCAG 2.3.1 general and red flash thresholds, on your device. Nothing is collected and nothing leaves your browser.</p>
+      <p class="disclaimer">NeuroShield lowers your exposure to flashing content but can't promise to catch every flash, and it isn't a medical device. If you have photosensitive epilepsy, keep following your doctor's advice.</p>
+      <nav class="links" aria-label="Project links">
+        <a href="https://github.com/OMARVII/Neuroshield" target="_blank" rel="noopener noreferrer">Source code</a>
+        <a href="https://github.com/OMARVII/Neuroshield/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Privacy policy</a>
+        <a href="https://github.com/OMARVII/Neuroshield/issues" target="_blank" rel="noopener noreferrer">Report a problem</a>
+        <a href="https://github.com/OMARVII/Neuroshield/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">Contribute</a>
+      </nav>
+      <p class="credit">
+        Made by Omar Khaled ·
+        <a href="https://www.omar-khaled.com/" target="_blank" rel="noopener noreferrer">Website</a> ·
+        <a href="https://x.com/OmarKhaledVII" target="_blank" rel="noopener noreferrer">X</a>
+        · MIT License
+      </p>
+    </section>
+  </div>
+  <script src="../shared/settings.js"></script>
+  <script src="../content/detector.js"></script>
+  <script src="../content/sampler.js"></script>
+  <script src="../content/overlay.js"></script>
+  <script src="options.js"></script>
+  <script src="self-test.js"></script>
+</body>
+</html>

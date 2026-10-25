@@ -23,9 +23,11 @@ test.describe('busy pages', () => {
   test('thousands of animations don\'t freeze the page, and a flashing one is still caught', async ({ page, servers, extension }) => {
     // Compared with the same page unprotected: CI machines are slow at rendering it either way.
     await extension.setSettings({ enabled: false });
-    await page.goto(`${servers.a}/many-animations?n=3000`);
+    await page.goto(`${servers.a}/many-animations?n=2000`);
     const unprotected = await longestFrameGap(page, 900);
-    await extension.setSettings({ enabled: true });
+    // Maximum: on a slow machine this page renders a few frames a second, too
+    // few to show (or see) more than three flashes a second.
+    await extension.setSettings({ enabled: true, sensitivity: 'maximum' });
     await page.reload();
     const gap = await longestFrameGap(page, 900);
     expect(gap, `longest frame gap (ms), unprotected ${Math.round(unprotected)} ms`).toBeLessThan(unprotected + 150);

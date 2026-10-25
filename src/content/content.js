@@ -347,9 +347,14 @@ var NeuroShieldContent = (() => {
       if (full) this.fullScanDue = true;
       if (this.animationTimer || !this.running) return;
       const wait = Math.max(50, this.animationScanAt + this.animationScanCost * 10 - performance.now());
+      // Run in an animation frame: measuring sizes there uses the layout the
+      // frame computes anyway, instead of forcing an extra one (expensive with
+      // thousands of animating elements).
       this.animationTimer = setTimeout(() => {
-        this.animationTimer = 0;
-        this.scanAnimations();
+        requestAnimationFrame(() => {
+          this.animationTimer = 0;
+          this.scanAnimations();
+        });
       }, wait);
     },
 

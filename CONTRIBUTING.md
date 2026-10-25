@@ -1,91 +1,65 @@
 # Contributing to NeuroShield
 
-Thanks for your interest. NeuroShield is a medical safety tool, so contributions
-are held to a higher standard than a typical extension. Please read this before
-opening a PR.
+Thanks for helping. NeuroShield makes safety decisions for people with photosensitive epilepsy, so changes are held to a higher standard than in a typical extension. Please read this before opening a pull request.
 
----
+## Before you start
 
-## Getting Started
+1. Check the [open issues](https://github.com/OMARVII/Neuroshield/issues).
+2. For anything bigger than a small fix, open an issue first so we can agree on the approach.
+3. Fork the repository and work on a branch.
 
-1. Check the [open issues](../../issues) before starting work.
-2. For anything non-trivial, open an issue first to discuss the approach.
-   Surprises waste everyone's time.
-3. Fork the repo and work on a dedicated branch.
+## Setup
 
----
-
-## Development Setup
-
-No build step required.
+You need Node 22 or later.
 
 ```bash
 git clone https://github.com/OMARVII/Neuroshield.git
-cd neuroshield
-npm install   # dev dependencies only (linting, testing)
+cd Neuroshield
+npm install
+npx playwright install chromium   # browser for the end-to-end tests
 ```
 
-Load the extension in Chrome:
+Load the extension: open `chrome://extensions`, turn on **Developer mode**, choose **Load unpacked** and select the repository folder. There is no build step: the files in `src/` are what ships.
 
-1. Go to `chrome://extensions`
-2. Enable **Developer mode**
-3. Click **Load unpacked** and select the repo root
+Content-script changes take effect when you reload the page. Service-worker changes need the **Reload** button on `chrome://extensions`.
 
-Changes to content scripts take effect on page reload. Changes to the background
-service worker require clicking **Reload** on the extensions page.
+## Commands
 
----
+| Command | What it does |
+|---|---|
+| `npm run lint` | ESLint over the whole repository |
+| `npm run test:unit` | Unit tests for the detector, settings and tab state (Node's test runner, no browser) |
+| `npm run test:e2e` | Loads the extension into Chromium and plays real videos (Playwright) |
+| `npm run validate` | Lint, unit tests and a package check (what CI runs first) |
+| `npm run build` | Writes `dist/neuroshield-<version>.zip` for the Chrome Web Store |
+| `npm run bench` | Main-thread cost on a 1080p60 video; `-- --compare <dir>` compares another build |
+| `npm run screenshots` | Regenerates the README screenshots |
+| `npm run icons` | Renders the PNG icons from `icons/source/*.svg` |
+| `npm run media` | Regenerates the test videos in `test/e2e/media` (needs ffmpeg) |
 
-## Testing
+## Tests are required
 
-```bash
-npm test        # run the full test suite
-npm run lint    # check code style
-```
+- All tests must pass.
+- **Detection changes need evidence.** Add unit tests in `test/unit/detector.test.js` that show the behavior before and after, and an end-to-end case with a video fixture if the change affects real playback. A pull request that says "this should detect better" without tests will be closed.
+- If NeuroShield missed something in the wild, the best fix starts with a fixture that reproduces it: add a clip to `scripts/make-media.sh` and a case to `test/e2e/detection.spec.js`.
 
-All tests must pass before submitting a PR. If you're changing detection logic,
-you must include a test case that demonstrates the behavior. This is not
-optional. NeuroShield makes safety-relevant decisions and untested algorithm
-changes will not be merged.
+## Code style
 
----
+- **No dependencies in `src/`.** Development tools live in `devDependencies` and never ship.
+- **One module per file.** Each file is a classic script that defines a single global (`var NeuroShieldX = (() => { 'use strict'; … })();`). Content scripts can't use ES modules, and this keeps every file loadable by the content scripts, the service worker and the Node tests.
+- **Keep analysis pure.** `src/content/detector.js` must not touch the DOM, so it stays testable in Node.
+- **Build DOM with `createElement`.** No `innerHTML`, `outerHTML` or `insertAdjacentHTML`; ESLint enforces this.
+- **No `eval`, `new Function` or remote code.** Manifest V3 forbids them, and we wouldn't want them anyway.
+- **The on-page UI must stay out of the page's reach.** It lives in a closed shadow root, and its buttons only react to real (trusted) input.
+- **Cost matters.** Content scripts run in every frame of every page. Avoid timers and animation-frame loops that run while nothing is playing, and measure with `npm run bench` when touching the sampling path.
+- Modern JavaScript (ES2022) is fine; Chrome 116 is the minimum.
 
-## Code Style
+## Pull requests
 
-- **Module pattern:** wrap each file in an IIFE. No globals leaking out.
-- **Strict mode:** `'use strict';` at the top of every IIFE.
-- **No external dependencies in `src/`.** Dev tooling (test runners, linters)
-  lives in `devDependencies` and never touches the extension bundle.
-- **No `eval`, no `new Function`, no inline scripts.** Manifest V3 CSP forbids
-  it and we don't want it anyway.
-- **DOM construction via `createElement` only.** No `innerHTML`, no
-  `insertAdjacentHTML`. This is a hard rule for XSS safety.
-- Keep functions small and single-purpose. If a function needs a long comment
-  to explain what it does, it probably needs to be split.
+1. One change per pull request.
+2. Update `CHANGELOG.md` for anything users would notice, and `README.md` or `docs/` if behavior changes.
+3. Fill in the pull request template. A maintainer will review within a few days.
 
----
+## Reporting problems
 
-## Pull Request Process
-
-1. Open an issue first for any non-trivial change. Trivial means: typo fixes,
-   comment improvements, obvious one-line bugs.
-2. One feature or fix per PR. Don't bundle unrelated changes.
-3. Detection algorithm changes require test evidence showing the before/after
-   behavior on real-world cases. A PR that says "this should work better" with
-   no data will be closed.
-4. Update any relevant documentation in the same PR.
-5. A maintainer will review within a few days. Be prepared to iterate.
-
----
-
-## Reporting Issues
-
-Use the GitHub issue tracker. Include:
-
-- Chrome version and OS
-- A minimal reproduction (URL or steps)
-- What you expected vs. what happened
-- Console errors if any (`F12` > Console)
-
-For security vulnerabilities, do not open a public issue. See
-[SECURITY.md](SECURITY.md) for responsible disclosure instructions.
+Use the [issue forms](https://github.com/OMARVII/Neuroshield/issues/new/choose). For security problems, follow [SECURITY.md](SECURITY.md) instead of opening a public issue.

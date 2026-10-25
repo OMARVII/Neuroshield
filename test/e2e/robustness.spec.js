@@ -1,6 +1,6 @@
 const { test, expect, waitForState, layers, pressButton } = require('./fixtures');
 
-const animationState = (page, selector = '#box') => page.evaluate((s) => document.querySelector(s).getAnimations()[0]?.playState, selector);
+const animationState = (page, selector = '#box') => page.evaluate((s) => document.querySelector(s)?.getAnimations()[0]?.playState, selector);
 
 /** Longest gap between animation frames over `ms`, in the page. */
 const longestFrameGap = (page, ms) => page.evaluate((duration) => new Promise((resolve) => {
@@ -20,9 +20,15 @@ test.describe('busy pages', () => {
   // 1.1.0 asked each animating element for its animations on every
   // animationstart, which costs time for every animation on the page: a page
   // with a few thousand spinners froze.
-  test('thousands of animations don\'t freeze the page, and a flashing one is still caught', async ({ page, servers }) => {
+  test('thousands of animations don\'t freeze the page, and a flashing one is still caught', async ({ page, servers, extension }) => {
+    // Compared with the same page unprotected: CI machines are slow at rendering it either way.
+    await extension.setSettings({ enabled: false });
     await page.goto(`${servers.a}/many-animations?n=3000`);
-    expect(await longestFrameGap(page, 1500), 'longest frame gap (ms)').toBeLessThan(250);
+    const unprotected = await longestFrameGap(page, 900);
+    await extension.setSettings({ enabled: true });
+    await page.reload();
+    const gap = await longestFrameGap(page, 900);
+    expect(gap, `longest frame gap (ms), unprotected ${Math.round(unprotected)} ms`).toBeLessThan(unprotected + 150);
     await expect.poll(() => animationState(page), { timeout: 8000 }).toBe('paused');
   });
 });

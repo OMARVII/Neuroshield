@@ -23,7 +23,7 @@ var NeuroShieldContent = (() => {
   if (previous && previous.retire) previous.retire();
 
   const Settings = NeuroShieldSettings;
-  const { VideoGuard, CanvasGuard, AnimationGuard, isAnimationCandidate } = NeuroShieldGuards;
+  const { VideoGuard, CanvasGuard, AnimationGuard, isAnimationCandidate, displayArea, MIN_AREA } = NeuroShieldGuards;
   const Overlay = NeuroShieldOverlay;
 
   const IS_TOP = window === window.top;
@@ -107,10 +107,21 @@ var NeuroShieldContent = (() => {
     return guard;
   }
 
+  /** Too small on screen to flash over the WCAG area (spinners, icons): not worth judging. */
+  function tooSmall(el, pseudo) {
+    try {
+      return displayArea(el, pseudo || null) < MIN_AREA;
+    } catch (_) {
+      return true;
+    }
+  }
+
   function guardAnimation(anim) {
-    if (!isAnimationCandidate(anim)) return;
-    const el = anim.effect.target;
+    const el = anim.effect && anim.effect.target;
+    if (!el) return;
     let guard = animationGuards.get(el);
+    if (!guard && tooSmall(el, anim.effect.pseudoElement)) return;
+    if (!isAnimationCandidate(anim)) return;
     if (!guard) {
       guard = new AnimationGuard(el, ctx);
       animationGuards.set(el, guard);
@@ -156,16 +167,28 @@ var NeuroShieldContent = (() => {
     animationTimer: 0,
     animationScanAt: 0,
     animationScanCost: 0,
+    fullScanDue: false,
+    fullScanAt: 0,
+    fullScanCost: 0,
+    started: new Map(), // element → pseudo-elements ('' for itself) whose animations started
 
     onMedia: (e) => {
       const target = e.composedPath ? e.composedPath()[0] : e.target;
       if (target instanceof HTMLVideoElement) guardMedia(target);
     },
 
-    // element.getAnimations() costs time in proportion to every animation on
-    // the page, so calling it per event froze pages with thousands of them.
-    // Events only schedule one shared scan (which also sees pseudo-elements).
-    onAnimationStart: () => discovery.requestAnimationScan(),
+    // getAnimations() costs time in proportion to every animation on the page,
+    // on an element as much as on the document: calling it per event froze
+    // pages with thousands of animations. Events are collected and handled in
+    // one scan, which skips small elements without asking for animations.
+    onAnimationStart: (e) => {
+      const target = e.composedPath ? e.composedPath()[0] : e.target;
+      if (!(target instanceof Element)) return;
+      let pseudos = discovery.started.get(target);
+      if (!pseudos) discovery.started.set(target, (pseudos = new Set()));
+      pseudos.add(e.pseudoElement || '');
+      discovery.requestAnimationScan(false);
+    },
 
     listen(root) {
       for (const type of MEDIA_EVENTS) root.addEventListener(type, this.onMedia, true);
@@ -183,7 +206,7 @@ var NeuroShieldContent = (() => {
       this.listen(document);
       this.observer = new MutationObserver((records) => this.onMutations(records));
       this.observer.observe(document, { childList: true, subtree: true });
-      this.sweepTimer = setInterval(() => this.requestAnimationScan(), ANIMATION_SWEEP_MS);
+      this.sweepTimer = setInterval(() => this.sweep(), ANIMATION_SWEEP_MS);
       if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => this.running && this.scan(document), { once: true });
       } else {
@@ -209,6 +232,8 @@ var NeuroShieldContent = (() => {
       this.pendingTimer = 0;
       this.detachTimer = 0;
       this.animationTimer = 0;
+      this.started.clear();
+      this.fullScanDue = false;
     },
 
     onMutations(records) {
@@ -314,11 +339,12 @@ var NeuroShieldContent = (() => {
     },
 
     /**
-     * Look at every running animation once, soon. Scans are spaced so they
-     * take at most ~10% of the main thread on pages with huge numbers of
-     * animations, where a single scan can take tens of milliseconds.
+     * Scan soon: `full` looks at every animation, otherwise only those whose
+     * start events were seen. Scans are spaced so they take at most ~10% of
+     * the main thread on pages where one takes tens of milliseconds.
      */
-    requestAnimationScan() {
+    requestAnimationScan(full) {
+      if (full) this.fullScanDue = true;
       if (this.animationTimer || !this.running) return;
       const wait = Math.max(50, this.animationScanAt + this.animationScanCost * 10 - performance.now());
       this.animationTimer = setTimeout(() => {
@@ -327,18 +353,51 @@ var NeuroShieldContent = (() => {
       }, wait);
     },
 
-    /** Guard candidate animations, including Web Animations started from script (no event). */
+    /**
+     * Every few seconds, look at every animation: Web Animations started from
+     * script fire no event. Backs off (up to 30 s) where a full scan is slow.
+     */
+    sweep() {
+      const spacing = Math.min(30000, Math.max(ANIMATION_SWEEP_MS, this.fullScanCost * 100));
+      if (performance.now() - this.fullScanAt >= spacing - 100) this.requestAnimationScan(true);
+    },
+
     scanAnimations() {
       if (!this.running || document.hidden) return;
+      const full = this.fullScanDue;
+      // Trees to ask, and (for an event scan) the elements to look at.
+      let trees = [document, ...this.roots];
+      let wanted = null;
+      if (!full) {
+        wanted = new Set();
+        const wantedTrees = new Set();
+        for (const [el, pseudos] of this.started) {
+          if (!el.isConnected || [...pseudos].every((p) => tooSmall(el, p))) continue;
+          wanted.add(el);
+          wantedTrees.add(el.getRootNode());
+        }
+        this.started.clear();
+        if (!wanted.size) return;
+        trees = [...wantedTrees];
+      }
+      this.fullScanDue = false;
+      if (full) this.started.clear();
       const start = performance.now();
       try {
-        for (const anim of document.getAnimations()) guardAnimation(anim);
-        for (const root of this.roots) for (const anim of root.getAnimations()) guardAnimation(anim);
+        for (const tree of trees) {
+          for (const anim of tree.getAnimations()) {
+            if (!wanted || wanted.has(anim.effect && anim.effect.target)) guardAnimation(anim);
+          }
+        }
       } catch (_) {
         // getAnimations unavailable
       }
       this.animationScanAt = performance.now();
       this.animationScanCost = this.animationScanAt - start;
+      if (full) {
+        this.fullScanAt = this.animationScanAt;
+        this.fullScanCost = this.animationScanCost;
+      }
     },
   };
 

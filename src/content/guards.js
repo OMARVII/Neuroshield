@@ -1109,6 +1109,7 @@ var NeuroShieldGuards = (() => {
     CanvasGuard,
     AnimationGuard,
     isAnimationCandidate: isCandidate,
+    displayArea,
     FILTERS,
     MIN_AREA,
   });
